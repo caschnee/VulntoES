@@ -15,7 +15,7 @@ import re
 #import socket
 #import pprint
 
-
+vulnmapping = { "properties": { "pluginName": { "type": "keyword", "fields": { "raw": { "type": "keyword" } } }, "ip": { "type": "ip", "fields": { "raw": { "type": "ip" } } }, "risk_factor": { "type": "keyword", "fields": { "raw": { "type": "keyword" } } }, "severity": { "type": "integer" }, "port": { "type": "integer" }, "pluginFamily": { "type": "keyword", "fields": { "raw": { "type": "keyword" } } }, "plugin_type": { "type": "keyword", "fields": { "raw": { "type": "keyword" } } }, "svc_name": { "type": "keyword", "fields": { "raw": { "type": "keyword" } } }, "svcid": { "type": "keyword", "fields": { "raw": { "type": "keyword" } } }, "synopsis": { "type": "keyword", "fields": { "raw": { "type": "keyword" } } }, "solution": { "type": "keyword", "fields": { "raw": { "type": "keyword" } } }, } }
 
 class NessusES:
 	"This class will parse an Nessus v2 XML file and send it to Elasticsearch"
@@ -27,28 +27,7 @@ class NessusES:
 		self.es = Elasticsearch([{'host':es_ip,'port':es_port}])
 		self.index_name = index_name
                 self.static_fields = static_fields
-                vulnmapping = { "properties": {
-                            "pluginName": { "type": "string", "fields": {
-                                "raw": { "type": "string", "index": "not_analyzed" } } },
-                            "ip": { "type": "string", "fields": {
-                                "raw": { "type": "string", "index": "not_analyzed" } } },
-                            "risk_factor": { "type": "string", "fields": {
-                                "raw": { "type": "string", "index": "not_analyzed" } } },
-                            "severity": { "type": "integer" },
-                            "port": { "type": "integer" },
-                            "pluginFamily": { "type": "string", "fields": {
-                                "raw": { "type": "string", "index": "not_analyzed" } } },
-                            "plugin_type": { "type": "string", "fields": {
-                                "raw": { "type": "string", "index": "not_analyzed" } } },
-                            "svc_name": { "type": "string", "fields": {
-                                "raw": { "type": "string", "index": "not_analyzed" } } },
-                            "svcid": { "type": "string", "fields": {
-                                "raw": { "type": "string", "index": "not_analyzed" } } },
-                            "synopsis": { "type": "string", "fields": {
-                                "raw": { "type": "string", "index": "not_analyzed" } } },
-                            "solution": { "type": "string", "fields": {
-                                "raw": { "type": "string", "index": "not_analyzed" } } },
-                            } }
+		
                 mappings = { "mappings": { "vuln": vulnmapping } }
                 try:    # try to create index
                     self.es.indices.create(index=index_name, body=json.dumps(mappings))
@@ -177,6 +156,11 @@ class NmapES:
 		self.root = self.tree.getroot()
 		self.es = Elasticsearch([{'host':es_ip,'port':es_port}])
 		self.index_name = index_name
+                mappings = { "mappings": { "vuln": vulnmapping } }
+                try:    # try to create index
+                    self.es.indices.create(index=index_name, body=json.dumps(mappings))
+                except: # if index exists: ensure mapping is created
+                    self.es.indices.put_mapping(index=index_name, doc_type="vuln", body=json.dumps(vulnmapping))
 
 	def displayInputFileName(self):
 		print self.input_file
@@ -191,12 +175,12 @@ class NmapES:
 			dict_item = {}
 			dict_item['scanner'] = 'nmap'
 			if h.tag == 'host':
-				if h.attrib['endtime']:
+				if 'endtime' in h.attrib:
 					dict_item['time'] = time.strftime('%Y/%m/%d %H:%M:%S', time.gmtime(float(h.attrib['endtime'])))
 			
 			for c in h:
 				if c.tag == 'address':
-					if c.attrib['addr']:
+					if c.attrib['addr'] and c.attrib['addrtype'] == "ipv4":
 						dict_item['ip'] = c.attrib['addr']
 				elif c.tag == 'hostnames':
 					for names in c.getchildren():
@@ -213,7 +197,7 @@ class NmapES:
 									dict_item['state'] = p.attrib['state']
 								elif p.tag == 'service':
 									dict_item['service'] = p.attrib['name']
-                                                                        if p.attrib['banner']:
+                                                                        if 'banner' in p.attrib:
                                                                             dict_item['banner'] = p.attrib['banner']
 								elif p.tag == 'script':
 									if p.attrib['id']:
@@ -221,6 +205,7 @@ class NmapES:
 											dict_item[p.attrib['id']] = p.attrib['output']									
 							if dict_item['state'] == 'open':
 								#Only sends document to ES if the port is open
+								#print("Send document: ")
 								self.es.index(index=self.index_name,doc_type="vuln", body=json.dumps(dict_item))
 
 class NiktoES:
